@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nexus SSH</string>
+
+    <!-- Navigation -->
+    <string name="nav_hosts">Hosts</string>
+    <string name="nav_terminal">Terminal</string>
+    <string name="nav_sftp">SFTP</string>
+    <string name="nav_keychain">Keychain</string>
+    <string name="nav_snippets">Snippets</string>
+    <string name="nav_forwarding">Port forwarding</string>
+    <string name="nav_known_hosts">Known hosts</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Common -->
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_disconnect">Disconnect</string>
+    <string name="action_duplicate">Duplicate</string>
+    <string name="action_close">Close</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_paste">Paste</string>
+    <string name="action_share">Share</string>
+    <string name="action_add">Add</string>
+    <string name="action_import">Import</string>
+    <string name="action_export">Export</string>
+    <string name="action_generate">Generate</string>
+    <string name="action_search">Search</string>
+    <string name="action_ok">OK</string>
+
+    <!-- Hosts -->
+    <string name="hosts_title">Hosts</string>
+    <string name="hosts_empty_title">No hosts yet</string>
+    <string name="hosts_empty_body">Add your first server to start connecting. You can also import an OpenSSH config file.</string>
+    <string name="hosts_new">New host</string>
+    <string name="hosts_search_hint">Search hosts, tags, addresses</string>
+    <string name="host_label">Label</string>
+    <string name="host_address">Address</string>
+    <string name="host_port">Port</string>
+    <string name="host_username">Username</string>
+    <string name="host_password">Password</string>
+    <string name="host_group">Group</string>
+    <string name="host_identity">Identity</string>
+    <string name="host_key">SSH key</string>
+    <string name="host_jump">Jump host</string>
+    <string name="host_tags">Tags</string>
+    <string name="host_notes">Notes</string>
+
+    <!-- Terminal -->
+    <string name="terminal_connecting">Connecting…</string>
+    <string name="terminal_authenticating">Authenticating…</string>
+    <string name="terminal_disconnected">Disconnected</string>
+    <string name="terminal_reconnect">Reconnect</string>
+    <string name="terminal_no_sessions">No active sessions</string>
+
+    <!-- Keychain -->
+    <string name="keychain_title">Keychain</string>
+    <string name="keychain_generate">Generate key pair</string>
+    <string name="keychain_import">Import key</string>
+    <string name="keychain_copy_public">Copy public key</string>
+    <string name="keychain_export_public">Export public key</string>
+
+    <!-- Security -->
+    <string name="unlock_title">Unlock vault</string>
+    <string name="unlock_biometric_prompt">Confirm your identity to unlock the Nexus SSH vault</string>
+    <string name="unlock_use_passcode">Use passcode</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_sessions">Active sessions</string>
+    <string name="notification_channel_forwarding">Port forwarding</string>
+    <string name="notification_channel_transfers">File transfers</string>
+
+    <!-- Shortcuts -->
+    <string name="shortcut_new_host_short">New host</string>
+    <string name="shortcut_new_host_long">Create a new host</string>
+    <string name="shortcut_quick_connect_short">Quick connect</string>
+    <string name="shortcut_quick_connect_long">Connect with a connection string</string>
+    <string name="channel_sessions">Active sessions</string>
+    <string name="channel_sessions_description">Keeps SSH sessions alive while the app is in the background</string>
+    <string name="channel_forwarding">Port forwarding</string>
+    <string name="channel_forwarding_description">Shows tunnels that are currently listening</string>
+    <string name="channel_transfers">File transfers</string>
+    <string name="channel_transfers_description">Progress of SFTP uploads and downloads</string>
+    <string name="nav_more">More</string>
+</resources>
