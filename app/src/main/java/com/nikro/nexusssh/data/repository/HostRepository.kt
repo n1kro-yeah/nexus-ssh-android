@@ -15,7 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Hosts, groups and identities - the address book of the app.
+ * Hosts, groups and identities — the address book of the app.
  *
  * The repository owns the entity/domain mapping and the small amount of logic that belongs to the
  * data itself (grouping for the sidebar, resolving a ProxyJump chain, applying group defaults).
@@ -76,8 +76,7 @@ class HostRepository @Inject constructor(
 
     suspend fun host(id: Long): Host? = hostDao.findById(id)?.toDomain()
 
-    suspend fun hosts(ids: List<Long>): List<Host> =
-        hostDao.findByIds(ids).map { it.toDomain() }
+    suspend fun hosts(ids: List<Long>): List<Host> = hostDao.findByIds(ids).map { it.toDomain() }
 
     suspend fun allHosts(): List<Host> = hostDao.getAll().map { it.toDomain() }
 
@@ -174,13 +173,13 @@ class HostRepository @Inject constructor(
         val group = host.groupId?.let { groupDao.findById(it)?.toDomain() } ?: return host
         return host.copy(
             identityId = host.identityId ?: group.defaultIdentityId,
-            port = if (host.port > 0) host.port else group.defaultPort,
+            port = if (host.port > 0) host.port else group.defaultPort ?: 22,
             jumpHostId = host.jumpHostId ?: group.defaultJumpHostId,
             agentForwarding = host.agentForwarding || group.agentForwarding,
         )
     }
 
-    /** Ancestors of a group, nearest first - used for breadcrumbs. */
+    /** Ancestors of a group, nearest first — used for breadcrumbs. */
     suspend fun groupPath(groupId: Long?): List<HostGroup> {
         val path = mutableListOf<HostGroup>()
         var currentId = groupId
@@ -195,9 +194,7 @@ class HostRepository @Inject constructor(
 
     /** Every distinct tag across all hosts, for the filter chips. */
     fun observeTags(): Flow<List<String>> =
-        observeHosts().map { hosts ->
-            hosts.flatMap { it.tags }.distinct().sorted()
-        }
+        observeHosts().map { hosts -> hosts.flatMap { it.tags }.distinct().sorted() }
 
     private companion object {
         const val MAX_JUMPS = 10

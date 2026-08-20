@@ -3,6 +3,7 @@ package com.nikro.nexusssh.ui.more
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DateRange
@@ -27,12 +28,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.nikro.nexusssh.ui.components.SectionHeader
 import com.nikro.nexusssh.ui.navigation.Routes
 
-/**
- * The catch-all tab.
- *
- * Everything that is used regularly has its own tab; this is where the rest lives, grouped so the
- * connection plumbing is not mixed with app preferences.
- */
+/** The catch-all tab for features that do not warrant their own destination. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoreScreen(

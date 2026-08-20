@@ -20,24 +20,13 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Holds tunnels open without the UI.
- *
- * A tunnel is only useful while something can reach it, so forwarding gets its own foreground
- * service separate from terminal sessions: closing the last terminal must not take the SOCKS proxy
- * down with it. On boot, rules marked "start automatically" are reconnected here.
- */
+/** Holds tunnels open without the UI. */
 @AndroidEntryPoint
 class PortForwardService : Service() {
 
-    @Inject
-    lateinit var sessions: SshSessionManager
-
-    @Inject
-    lateinit var rules: PortForwardRepository
-
-    @Inject
-    lateinit var hosts: HostRepository
+    @Inject lateinit var sessions: SshSessionManager
+    @Inject lateinit var rules: PortForwardRepository
+    @Inject lateinit var hosts: HostRepository
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -60,7 +49,6 @@ class PortForwardService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-
             else -> scope.launch { startAutoRules() }
         }
         return START_STICKY
@@ -71,13 +59,7 @@ class PortForwardService : Service() {
         super.onDestroy()
     }
 
-    /**
-     * Opens one session per host that has auto-start rules.
-     *
-     * The session manager applies the host's rules itself once the connection is up, so this only
-     * has to make sure the right hosts are connected - and it reuses a session that already exists
-     * rather than opening a second one.
-     */
+    /** Opens one reusable SSH session per host with an enabled auto-start rule. */
     private suspend fun startAutoRules() {
         val autoStart = rules.autoStartRules().filter { it.enabled }
         if (autoStart.isEmpty()) {
@@ -100,15 +82,19 @@ class PortForwardService : Service() {
             stopSelf()
             return
         }
+
+        val notificationText = if (autoStart.size == 1) {
+            val rule = autoStart.first()
+            rule.label.ifBlank {
+                val hostLabel = hosts.host(rule.hostId)?.label ?: "host"
+                rule.asSshCommand(hostLabel)
+            }
+        } else {
+            "${autoStart.size} tunnels active"
+        }
         startForeground(
             NotificationChannels.FORWARDING_NOTIFICATION_ID,
-            buildNotification(
-                if (autoStart.size == 1) {
-                    autoStart.first().label.ifBlank { autoStart.first().asSshCommand }
-                } else {
-                    "${autoStart.size} tunnels active"
-                },
-            ),
+            buildNotification(notificationText),
         )
     }
 
