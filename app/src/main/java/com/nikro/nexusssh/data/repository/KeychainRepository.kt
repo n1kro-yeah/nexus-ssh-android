@@ -20,7 +20,7 @@ import javax.inject.Singleton
  * The keychain: private keys, sealed by [CryptoVault] before they ever touch the database.
  *
  * Nothing outside this class handles a plaintext key except the SSH layer, and only for the
- * duration of a handshake - [materialFor] hands out a short-lived [PrivateKeyMaterial] that the
+ * duration of a handshake: [materialFor] hands out a short-lived [PrivateKeyMaterial] that the
  * connection wipes when it is done.
  */
 @Singleton
@@ -31,13 +31,9 @@ class KeychainRepository @Inject constructor(
     private val importer: SshKeyImporter,
 ) {
 
-    /** Result of importing a key file or pasted text. */
     sealed interface ImportOutcome {
         data class Saved(val key: SshKey) : ImportOutcome
-
-        /** The file is encrypted; ask for the passphrase (again, if [wrongPassphrase]). */
         data class NeedsPassphrase(val wrongPassphrase: Boolean, val format: String) : ImportOutcome
-
         data class Error(val message: String) : ImportOutcome
     }
 
@@ -58,12 +54,6 @@ class KeychainRepository @Inject constructor(
     // Creating keys
     // ---------------------------------------------------------------------------------------
 
-    /**
-     * Generates a key pair and stores it.
-     *
-     * @param passphrase optional extra protection; the key stays sealed by the device keystore
-     *   either way, so this is only needed for parity with a desktop workflow
-     */
     suspend fun generate(
         label: String,
         type: SshKeyType = SshKeyType.ED25519,
@@ -87,7 +77,7 @@ class KeychainRepository @Inject constructor(
             bits = generated.bits,
         )
         val id = dao.upsert(key.toEntity())
-        passphrase?.fill('\\u0000')
+        passphrase?.fill(Char.MIN_VALUE)
         return key.copy(id = id)
     }
 
@@ -117,8 +107,8 @@ class KeychainRepository @Inject constructor(
                     fingerprintSha256 = parsed.fingerprintSha256,
                     fingerprintMd5 = parsed.fingerprintMd5,
                     comment = parsed.comment,
-                    // The stored copy is unencrypted-but-sealed, so a passphrase is only kept when
-                    // the user wants the original protection preserved.
+                    // The normalised copy is unencrypted-but-sealed; remember only an original
+                    // passphrase that the user has explicitly asked to retain.
                     isPassphraseProtected = false,
                     sealedPassphrase = if (rememberPassphrase && passphrase != null && passphrase.isNotEmpty()) {
                         vault.seal(String(passphrase))
@@ -129,7 +119,7 @@ class KeychainRepository @Inject constructor(
                     bits = parsed.bits,
                 )
                 val id = dao.upsert(key.toEntity())
-                passphrase?.fill('\\u0000')
+                passphrase?.fill(Char.MIN_VALUE)
                 AppLogger.i(TAG, "Imported ${parsed.sourceFormat} key ${parsed.fingerprintSha256}")
                 ImportOutcome.Saved(key.copy(id = id))
             }
@@ -172,17 +162,14 @@ class KeychainRepository @Inject constructor(
     /** The public key line, ready to paste into `authorized_keys`. */
     suspend fun publicKeyLine(id: Long): String? = dao.findById(id)?.publicKeyLine
 
-    /**
-     * Exports a key protected by [passphrase] using the portable envelope, so it can be restored
-     * on another device that does not share this one's keystore.
-     */
+    /** Exports a portable, password-protected envelope for transfer to another device. */
     suspend fun exportPortable(id: Long, passphrase: CharArray): String? {
         val pem = revealPrivateKey(id) ?: return null
         return vault.sealPortable(pem.toByteArray(Charsets.UTF_8), passphrase)
-            .also { passphrase.fill('\\u0000') }
+            .also { passphrase.fill(Char.MIN_VALUE) }
     }
 
-    /** Exports as a normal PEM file. The plaintext leaves the device - warn the user first. */
+    /** Exports normal PEM. The caller must warn before plaintext leaves the device. */
     suspend fun exportPlainPem(id: Long): String? = revealPrivateKey(id)
 
     /** Details for the key screen, computed from the stored public key line. */
