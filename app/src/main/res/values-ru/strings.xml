@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nexus SSH</string>
+
+    <string name="nav_hosts">Хосты</string>
+    <string name="nav_terminal">Терминал</string>
+    <string name="nav_sftp">SFTP</string>
+    <string name="nav_keychain">Ключи</string>
+    <string name="nav_snippets">Сниппеты</string>
+    <string name="nav_forwarding">Проброс портов</string>
+    <string name="nav_known_hosts">Известные хосты</string>
+    <string name="nav_history">История</string>
+    <string name="nav_settings">Настройки</string>
+
+    <string name="action_save">Сохранить</string>
+    <string name="action_cancel">Отмена</string>
+    <string name="action_delete">Удалить</string>
+    <string name="action_edit">Изменить</string>
+    <string name="action_connect">Подключиться</string>
+    <string name="action_disconnect">Отключиться</string>
+    <string name="action_duplicate">Дублировать</string>
+    <string name="action_close">Закрыть</string>
+    <string name="action_retry">Повторить</string>
+    <string name="action_copy">Копировать</string>
+    <string name="action_paste">Вставить</string>
+    <string name="action_share">Поделиться</string>
+    <string name="action_add">Добавить</string>
+    <string name="action_import">Импорт</string>
+    <string name="action_export">Экспорт</string>
+    <string name="action_generate">Сгенерировать</string>
+    <string name="action_search">Поиск</string>
+    <string name="action_ok">ОК</string>
+
+    <string name="hosts_title">Хосты</string>
+    <string name="hosts_empty_title">Пока нет хостов</string>
+    <string name="hosts_empty_body">Добавьте первый сервер, чтобы начать. Также можно импортировать файл конфигурации OpenSSH.</string>
+    <string name="hosts_new">Новый хост</string>
+    <string name="hosts_search_hint">Поиск по имени, тегам, адресам</string>
+    <string name="host_label">Название</string>
+    <string name="host_address">Адрес</string>
+    <string name="host_port">Порт</string>
+    <string name="host_username">Пользователь</string>
+    <string name="host_password">Пароль</string>
+    <string name="host_group">Группа</string>
+    <string name="host_identity">Учётные данные</string>
+    <string name="host_key">SSH‑ключ</string>
+    <string name="host_jump">Промежуточный хост</string>
+    <string name="host_tags">Теги</string>
+    <string name="host_notes">Заметки</string>
+
+    <string name="terminal_connecting">Подключение…</string>
+    <string name="terminal_authenticating">Аутентификация…</string>
+    <string name="terminal_disconnected">Соединение закрыто</string>
+    <string name="terminal_reconnect">Переподключиться</string>
+    <string name="terminal_no_sessions">Нет активных сессий</string>
+
+    <string name="keychain_title">Ключи</string>
+    <string name="keychain_generate">Сгенерировать пару ключей</string>
+    <string name="keychain_import">Импортировать ключ</string>
+    <string name="keychain_copy_public">Копировать публичный ключ</string>
+    <string name="keychain_export_public">Экспортировать публичный ключ</string>
+
+    <string name="unlock_title">Разблокировать хранилище</string>
+    <string name="unlock_biometric_prompt">Подтвердите личность, чтобы открыть хранилище Nexus SSH</string>
+    <string name="unlock_use_passcode">Ввести код</string>
+
+    <string name="notification_channel_sessions">Активные сессии</string>
+    <string name="notification_channel_forwarding">Проброс портов</string>
+    <string name="notification_channel_transfers">Передача файлов</string>
+
+    <string name="shortcut_new_host_short">Новый хост</string>
+    <string name="shortcut_new_host_long">Создать новый хост</string>
+    <string name="shortcut_quick_connect_short">Быстрое подключение</string>
+    <string name="shortcut_quick_connect_long">Подключиться по строке соединения</string>
+    <string name="channel_sessions">Активные сессии</string>
+    <string name="channel_sessions_description">Поддерживает SSH-сессии в фоне</string>
+    <string name="channel_forwarding">Переадресация портов</string>
+    <string name="channel_forwarding_description">Показывает активные туннели</string>
+    <string name="channel_transfers">Передача файлов</string>
+    <string name="channel_transfers_description">Прогресс загрузок и выгрузок SFTP</string>
+    <string name="nav_more">Ещё</string>
+</resources>
