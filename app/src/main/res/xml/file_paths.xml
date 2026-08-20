@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="exports" path="exports/" />
+    <files-path name="session_logs" path="session-logs/" />
+    <cache-path name="sftp_cache" path="sftp/" />
+    <cache-path name="shared" path="shared/" />
+</paths>

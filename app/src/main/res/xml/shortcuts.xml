@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="new_host"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add_host"
+        android:shortcutShortLabel="@string/shortcut_new_host_short"
+        android:shortcutLongLabel="@string/shortcut_new_host_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nikro.nexusssh"
+            android:targetClass="com.nikro.nexusssh.MainActivity"
+            android:data="nexusssh://host/new" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="quick_connect"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_quick_connect"
+        android:shortcutShortLabel="@string/shortcut_quick_connect_short"
+        android:shortcutLongLabel="@string/shortcut_quick_connect_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.nikro.nexusssh"
+            android:targetClass="com.nikro.nexusssh.MainActivity"
+            android:data="nexusssh://quick-connect" />
+    </shortcut>
+</shortcuts>

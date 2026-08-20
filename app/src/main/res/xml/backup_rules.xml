@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The vault holds private keys and credentials that are wrapped by a hardware-backed
+  Android Keystore key. That key never leaves the device, so backing up the ciphertext
+  would produce unrecoverable data. Everything is therefore excluded from auto backup;
+  users export an explicitly re-encrypted archive instead (Settings -> Backup).
+-->
+<full-backup-content>
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="root" path="." />
+</full-backup-content>
