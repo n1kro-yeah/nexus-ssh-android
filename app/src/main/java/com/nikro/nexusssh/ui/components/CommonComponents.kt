@@ -29,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -42,26 +43,19 @@ import com.nikro.nexusssh.domain.model.ConnectionStatus
 import com.nikro.nexusssh.ui.theme.MonoTextStyle
 import com.nikro.nexusssh.ui.theme.StatusColors
 
-/**
- * Small building blocks shared by every screen.
- *
- * Keeping them here means the host list, the terminal chrome and the keychain all render a status
- * dot or an empty state the same way, which is most of what makes an app feel coherent.
- */
-
 /** Colour used to represent a connection state, following Material 3 tonal expectations. */
 fun ConnectionStatus.tint(): Color = when (this) {
-    ConnectionStatus.CONNECTED -> Color(StatusColors.connected)
+    ConnectionStatus.CONNECTED -> StatusColors.connected
     ConnectionStatus.CONNECTING,
     ConnectionStatus.RESOLVING,
     ConnectionStatus.AUTHENTICATING,
     ConnectionStatus.VERIFYING_HOST_KEY,
     ConnectionStatus.OPENING_CHANNEL,
-    -> Color(StatusColors.connecting)
+    -> StatusColors.connecting
 
-    ConnectionStatus.RECONNECTING -> Color(StatusColors.reconnecting)
-    ConnectionStatus.FAILED -> Color(StatusColors.failed)
-    ConnectionStatus.IDLE, ConnectionStatus.DISCONNECTED -> Color(StatusColors.idle)
+    ConnectionStatus.RECONNECTING -> StatusColors.reconnecting
+    ConnectionStatus.FAILED -> StatusColors.failed
+    ConnectionStatus.IDLE, ConnectionStatus.DISCONNECTED -> StatusColors.idle
 }
 
 /** True while the state is a transient step of the handshake. */
@@ -169,17 +163,13 @@ fun SectionHeader(
     }
 }
 
-/**
- * Fingerprint block.
- *
- * Fingerprints are unreadable in a proportional font, and the random art is only meaningful when
- * every glyph has the same width, so both are rendered monospaced.
- */
+/** Fingerprint block rendered in a monospace typeface. */
 @Composable
 fun FingerprintBlock(
     fingerprint: String,
     modifier: Modifier = Modifier,
     randomArt: String? = null,
+    label: String? = null,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -189,6 +179,14 @@ fun FingerprintBlock(
         ),
     ) {
         Column(Modifier.padding(14.dp)) {
+            if (!label.isNullOrBlank()) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
             Text(
                 text = fingerprint,
                 style = MonoTextStyle,
@@ -237,7 +235,7 @@ fun DetailRow(
     }
 }
 
-/** Destructive confirmation dialog, used for deletes and for accepting a changed host key. */
+/** Destructive confirmation dialog, used for deletes and changed host keys. */
 @Composable
 fun ConfirmDialog(
     title: String,
