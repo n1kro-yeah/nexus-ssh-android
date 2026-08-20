@@ -17,17 +17,11 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.EnumSet
 
-/**
- * The SFTP half of the app: a browsable remote filesystem plus resumable transfers.
- *
- * Transfers use explicit offsets on [net.schmizz.sshj.sftp.RemoteFile] instead of the convenience
- * `get`/`put` helpers, which is what makes progress reporting, cancellation and resume possible.
- */
+/** The SFTP half of the app: browsing, transfers and small-file editing. */
 class SftpManager(private val connection: SshConnection) {
 
     private var client: SFTPClient? = null
 
-    /** A remote directory entry in a UI-friendly shape. */
     data class RemoteEntry(
         val name: String,
         val path: String,
@@ -130,25 +124,40 @@ class SftpManager(private val connection: SshConnection) {
     }
 
     suspend fun chmod(path: String, octal: String) = withContext(Dispatchers.IO) {
-        val permissions = octal.toInt(8)
-        connect().chmod(path, permissions)
+        connect().chmod(path, octal.toInt(8))
     }
 
     suspend fun symlinkTarget(path: String): String? = withContext(Dispatchers.IO) {
         runCatching { connect().readlink(path) }.getOrNull()
     }
 
-    /** Free/used space, shown in the SFTP browser footer when the server supports statvfs. */
+    /**
+     * Free/used space for the current path.
+     *
+     * SSHJ 0.38 does not expose OpenSSH's optional statvfs extension. Most Unix SSH servers do
+     * provide POSIX `df`, so use that command as a best-effort fallback and hide the footer when
+     * it is unavailable rather than claiming a made-up value.
+     */
     suspend fun diskUsage(path: String): Pair<Long, Long>? = withContext(Dispatchers.IO) {
-        runCatching {
-            val statistics = connect().statVFS(path)
-            val total = statistics.blocks * statistics.blockSize
-            val free = statistics.blocksAvailable * statistics.blockSize
-            total to free
-        }.getOrNull()
+        val quotedPath = path.replace("'", "'\"'\"'")
+        val result = try {
+            connection.exec("df -Pk '$quotedPath'")
+        } catch (_: Throwable) {
+            return@withContext null
+        }
+        if (!result.isSuccess) return@withContext null
+
+        val fields = result.output.lineSequence()
+            .drop(1)
+            .map { it.trim().split(Regex("\\s+")) }
+            .lastOrNull { it.size >= 4 }
+            ?: return@withContext null
+        val total = fields.getOrNull(1)?.toLongOrNull()?.times(1024L) ?: return@withContext null
+        val free = fields.getOrNull(3)?.toLongOrNull()?.times(1024L) ?: return@withContext null
+        total to free
     }
 
-    /** Creates an empty file, used by the "new file" action. */
+    /** Creates an empty file, used by the new-file action. */
     suspend fun touch(path: String) = withContext(Dispatchers.IO) {
         connect().open(path, EnumSet.of(OpenMode.CREAT, OpenMode.WRITE, OpenMode.TRUNC)).close()
     }
@@ -157,11 +166,6 @@ class SftpManager(private val connection: SshConnection) {
     // Transfers
     // ---------------------------------------------------------------------------------------
 
-    /**
-     * Downloads [remotePath] into [destination]. Passing an existing partial file resumes it.
-     *
-     * @return the number of bytes transferred by this call
-     */
     suspend fun download(
         remotePath: String,
         destination: OutputStream,
@@ -192,7 +196,6 @@ class SftpManager(private val connection: SshConnection) {
         transferred
     }
 
-    /** Uploads [source] to [remotePath], optionally appending from [startOffset]. */
     suspend fun upload(
         source: InputStream,
         remotePath: String,
@@ -228,7 +231,6 @@ class SftpManager(private val connection: SshConnection) {
         transferred
     }
 
-    /** Recursively uploads a local directory tree. */
     suspend fun uploadDirectory(
         localDirectory: File,
         remotePath: String,
@@ -250,7 +252,6 @@ class SftpManager(private val connection: SshConnection) {
         }
     }
 
-    /** Recursively downloads a remote directory tree. */
     suspend fun downloadDirectory(
         remotePath: String,
         localDirectory: File,
@@ -278,7 +279,7 @@ class SftpManager(private val connection: SshConnection) {
         walk(remotePath, localDirectory)
     }
 
-    /** Reads a small remote file completely - used by the built-in text editor. */
+    /** Reads a small remote file completely, used by the built-in text editor. */
     suspend fun readText(path: String, maxBytes: Int = 2 * 1024 * 1024): String =
         withContext(Dispatchers.IO) {
             val sftp = connect()
@@ -310,12 +311,7 @@ class SftpManager(private val connection: SshConnection) {
 
     private fun RemoteResourceInfo.toEntry(sftp: SFTPClient): RemoteEntry {
         val symlink = attributes.mode.type == FileMode.Type.SYMLINK
-        // A symlink's own attributes hide what it points at; resolve so directories sort right.
-        val effective = if (symlink) {
-            runCatching { sftp.stat(path) }.getOrDefault(attributes)
-        } else {
-            attributes
-        }
+        val effective = if (symlink) runCatching { sftp.stat(path) }.getOrDefault(attributes) else attributes
         return effective.toEntry(name, path, symlink)
     }
 
@@ -362,7 +358,6 @@ class SftpManager(private val connection: SshConnection) {
                 net.schmizz.sshj.sftp.Response.StatusCode.FAILURE -> "The server refused the operation"
                 else -> error.message ?: "SFTP error"
             }
-
             else -> error.message ?: error::class.java.simpleName
         }.also { AppLogger.d(TAG, it) }
     }

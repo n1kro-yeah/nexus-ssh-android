@@ -24,21 +24,12 @@ import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import javax.inject.Inject
 
-/**
- * Runs SFTP transfers outside the UI.
- *
- * Transfers survive navigation and screen-off because they run in a foreground service with a
- * progress notification; a large upload dying because someone switched apps is the single most
- * annoying failure mode of mobile file managers. Progress is written to the database as well, so
- * the transfer list is accurate even after the process is restarted.
- */
+/** Runs SFTP transfers outside the UI with a foreground notification. */
 @AndroidEntryPoint
 class SftpTransferService : Service() {
 
     @Inject lateinit var sessions: SshSessionManager
-
     @Inject lateinit var hosts: HostRepository
-
     @Inject lateinit var transfers: TransferDao
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -59,7 +50,6 @@ class SftpTransferService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-
             ACTION_ENQUEUE -> enqueue(intent)
             else -> Unit
         }
@@ -125,7 +115,10 @@ class SftpTransferService : Service() {
                         } ?: error("No local file to upload")
                         stream.use { input ->
                             manager.upload(input, remotePath, size) { progress ->
-                                publish(rowId, fileName, progress.transferred, progress.fraction)
+                                // SFTP callbacks are synchronous; schedule the suspend DAO update.
+                                scope.launch {
+                                    publish(rowId, fileName, progress.transferred, progress.fraction)
+                                }
                             }
                         }
                     } else {
@@ -137,7 +130,9 @@ class SftpTransferService : Service() {
                         val size = manager.stat(remotePath)?.size ?: 0L
                         file.outputStream().use { output ->
                             manager.download(remotePath, output, size) { progress ->
-                                publish(rowId, fileName, progress.transferred, progress.fraction)
+                                scope.launch {
+                                    publish(rowId, fileName, progress.transferred, progress.fraction)
+                                }
                             }
                         }
                     }
