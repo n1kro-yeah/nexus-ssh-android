@@ -23,22 +23,14 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.TimeUnit
 
-/**
- * One live SSH connection: transport, authentication, and the channels opened on top of it.
- *
- * Everything blocking runs on [Dispatchers.IO]. A connection owns the whole ProxyJump chain it
- * needed, and closing it tears the chain down in reverse order.
- */
+/** One live SSH transport plus the jump-host chain needed to reach it. */
 class SshConnection(
     val config: ConnectionConfig,
     private val knownHosts: KnownHostRepository,
-    /** Answers text prompts (password, passphrase, 2FA). Returning null aborts. */
     private val onPrompt: suspend (SshPrompt) -> String?,
-    /** Answers yes/no prompts (host key trust). */
     private val onConfirm: suspend (SshPrompt) -> Boolean,
     private val onEvent: (SshEvent) -> Unit = {},
 ) {
-
     private var client: SSHClient? = null
     private val hops = mutableListOf<SSHClient>()
 
@@ -48,7 +40,6 @@ class SshConnection(
     val isConnected: Boolean
         get() = client?.let { it.isConnected && it.isAuthenticated } == true
 
-    /** Negotiated algorithms, shown in the session info sheet. */
     var connectionInfo: ConnectionInfo? = null
         private set
 
@@ -63,13 +54,10 @@ class SshConnection(
         val viaJumpHosts: List<String>,
     )
 
-    // ---------------------------------------------------------------------------------------
-    // Connect
-    // ---------------------------------------------------------------------------------------
-
     suspend fun connect() = withContext(Dispatchers.IO) {
         SecurityProviderInstaller.install()
         check(client == null) { "already connected" }
+        closing = false
 
         var previous: SSHClient? = null
         config.jumpChain.forEachIndexed { index, hop ->
@@ -108,9 +96,8 @@ class SshConnection(
         }
 
         if (config.keepAliveSeconds > 0) {
-            runCatching {
-                target.connection.keepAlive.keepAliveInterval = config.keepAliveSeconds
-            }.onFailure { AppLogger.w(TAG, "Keep-alive unavailable: ${it.message}") }
+            runCatching { target.connection.keepAlive.keepAliveInterval = config.keepAliveSeconds }
+                .onFailure { AppLogger.w(TAG, "Keep-alive unavailable: ${it.message}") }
         }
 
         client = target
@@ -123,101 +110,82 @@ class SshConnection(
             if (target.keepAliveSeconds > 0) keepAliveProvider = KeepAliveProvider.KEEP_ALIVE
             version = CLIENT_VERSION
         }
-        val client = SSHClient(sshConfig)
-        client.connectTimeout = target.connectTimeoutMs
-        client.timeout = if (target.readTimeoutMs > 0) target.readTimeoutMs else 0
-        client.addHostKeyVerifier(
-            VaultHostKeyVerifier(
-                repository = knownHosts,
-                strict = target.strictHostKeyChecking,
-                onPrompt = onConfirm,
-            ),
-        )
-        if (target.compression) {
-            // Compression needs jzlib on the classpath; degrade gracefully when it is absent.
-            runCatching { client.useCompression() }
-                .onFailure { AppLogger.w(TAG, "Compression unavailable: ${it.message}") }
+        return SSHClient(sshConfig).apply {
+            connectTimeout = target.connectTimeoutMs
+            timeout = if (target.readTimeoutMs > 0) target.readTimeoutMs else 0
+            addHostKeyVerifier(
+                VaultHostKeyVerifier(
+                    repository = knownHosts,
+                    strict = target.strictHostKeyChecking,
+                    onPrompt = onConfirm,
+                ),
+            )
+            if (target.compression) {
+                runCatching { useCompression() }
+                    .onFailure { AppLogger.w(TAG, "Compression unavailable: ${it.message}") }
+            }
         }
-        return client
     }
 
     private fun authenticate(client: SSHClient, target: ConnectionConfig) {
         val methods = mutableListOf<AuthMethod>()
-
         target.keys.forEach { material ->
             val provider = runCatching { loadKey(client, material) }
                 .onFailure { AppLogger.w(TAG, "Key ${material.label} unusable: ${it.message}") }
                 .getOrNull()
             if (provider != null) methods += AuthPublickey(provider)
         }
-
         if (target.allowPasswordAuth) {
             methods += AuthPassword(
-                PromptingPasswordFinder(
-                    username = target.username,
-                    stored = target.password,
-                    onPrompt = onPrompt,
-                ),
+                PromptingPasswordFinder(target.username, target.password, onPrompt),
             )
         }
-
         if (target.allowKeyboardInteractive) {
             methods += AuthKeyboardInteractive(
-                PromptingChallengeResponder(
-                    storedPassword = target.password,
-                    onPrompt = onPrompt,
-                ),
+                PromptingChallengeResponder(target.password, onPrompt),
             )
         }
-
         require(methods.isNotEmpty()) { "No authentication method available for ${target.address}" }
         client.auth(target.username, methods)
     }
 
-    private fun loadKey(client: SSHClient, material: PrivateKeyMaterial): KeyProvider {
-        val finder = PromptingPassphraseFinder(
-            keyLabel = material.label,
-            stored = material.passphrase,
-            onPrompt = onPrompt,
+    private fun loadKey(client: SSHClient, material: PrivateKeyMaterial): KeyProvider =
+        client.loadKeys(
+            material.pem,
+            null,
+            PromptingPassphraseFinder(
+                keyLabel = material.label,
+                stored = material.passphrase,
+                onPrompt = onPrompt,
+            ),
         )
-        // The two-argument content form treats the strings as PEM text rather than file paths.
-        return client.loadKeys(material.pem, null, finder)
-    }
 
     private fun describe(client: SSHClient): ConnectionInfo {
         val transport = client.transport
         return ConnectionInfo(
-            serverVersion = runCatching { transport.serverVersion }.getOrNull().orEmpty(),
-            keyExchange = runCatching { transport.hostKeyAlgorithm }.getOrNull().orEmpty(),
-            cipher = runCatching { transport.config.cipherFactories.firstOrNull()?.name }
-                .getOrNull().orEmpty(),
-            mac = runCatching { transport.config.macFactories.firstOrNull()?.name }
-                .getOrNull().orEmpty(),
+            serverVersion = runCatching { transport.serverVersion.toString() }.getOrDefault(""),
+            keyExchange = runCatching { transport.hostKeyAlgorithm.toString() }.getOrDefault(""),
+            cipher = runCatching { transport.config.cipherFactories.firstOrNull()?.name.orEmpty() }
+                .getOrDefault(""),
+            mac = runCatching { transport.config.macFactories.firstOrNull()?.name.orEmpty() }
+                .getOrDefault(""),
             compression = if (config.compression) "zlib@openssh.com" else "none",
-            hostKeyType = runCatching { transport.hostKeyAlgorithm }.getOrNull().orEmpty(),
-            hostKeyFingerprint = runCatching {
-                transport.remoteHost?.let { "" } ?: ""
-            }.getOrNull().orEmpty(),
+            hostKeyType = runCatching { transport.hostKeyAlgorithm.toString() }.getOrDefault(""),
+            hostKeyFingerprint = "",
             viaJumpHosts = config.jumpChain.map { it.hostname },
         )
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Channels
-    // ---------------------------------------------------------------------------------------
-
-    /** Opens an interactive shell with a PTY sized [columns] x [rows]. */
+    /** Opens an interactive shell with a PTY sized [columns] × [rows]. */
     suspend fun openShell(columns: Int, rows: Int): SshShellChannel = withContext(Dispatchers.IO) {
         val active = client ?: throw SshConnectionException("Not connected")
         val session = active.startSession()
-
         if (config.agentForwarding) requestAgentForwarding(session)
 
         config.environment.forEach { (name, value) ->
             runCatching { session.setEnvVar(name, value) }
                 .onFailure { AppLogger.w(TAG, "Server rejected env $name") }
         }
-
         session.allocatePTY(
             config.terminalType,
             columns,
@@ -235,7 +203,7 @@ class SshConnection(
         }
     }
 
-    /** Runs a one-shot command and collects its output; used by snippets and the SFTP helpers. */
+    /** Runs a one-shot command and collects its output. */
     suspend fun exec(command: String, timeoutSeconds: Long = 60): CommandResult =
         withContext(Dispatchers.IO) {
             val active = client ?: throw SshConnectionException("Not connected")
@@ -244,11 +212,7 @@ class SshConnection(
                 val output = execution.inputStream.readBytes().toString(Charsets.UTF_8)
                 val errors = execution.errorStream.readBytes().toString(Charsets.UTF_8)
                 execution.join(timeoutSeconds, TimeUnit.SECONDS)
-                CommandResult(
-                    exitStatus = execution.exitStatus ?: -1,
-                    output = output,
-                    errorOutput = errors,
-                )
+                CommandResult(execution.exitStatus ?: -1, output, errors)
             }
         }
 
@@ -256,46 +220,28 @@ class SshConnection(
         val isSuccess: Boolean get() = exitStatus == 0
     }
 
-    /** Opens an SFTP subsystem on this connection. The caller owns the returned client. */
     suspend fun openSftp(): SFTPClient = withContext(Dispatchers.IO) {
-        val active = client ?: throw SshConnectionException("Not connected")
-        active.newSFTPClient()
+        (client ?: throw SshConnectionException("Not connected")).newSFTPClient()
     }
 
-    /** A direct TCP/IP channel, used by the SOCKS proxy and local forwards. */
-    fun openDirectChannel(host: String, port: Int): DirectConnection {
-        val active = client ?: throw SshConnectionException("Not connected")
-        return active.newDirectConnection(host, port)
-    }
+    fun openDirectChannel(host: String, port: Int): DirectConnection =
+        (client ?: throw SshConnectionException("Not connected")).newDirectConnection(host, port)
 
-    /** The underlying client, needed by the forwarding managers. */
     internal fun requireClient(): SSHClient = client ?: throw SshConnectionException("Not connected")
 
-    /**
-     * Sends `auth-agent-req@openssh.com` on the session channel.
-     *
-     * SSHJ has no public API for agent forwarding, so the channel request is issued through the
-     * protected `sendChannelRequest` hook. If the method is missing (future SSHJ versions) the
-     * session still works, just without forwarding, and the user is told.
-     */
     private fun requestAgentForwarding(session: Session) {
-        val result = runCatching {
+        runCatching {
             val method = session.javaClass.methods.firstOrNull {
                 it.name == "sendChannelRequest" && it.parameterCount == 3
             } ?: error("sendChannelRequest not available")
             method.isAccessible = true
             val bufferClass = Class.forName("net.schmizz.sshj.common.Buffer\$PlainBuffer")
             method.invoke(session, "auth-agent-req@openssh.com", false, bufferClass.newInstance())
-        }
-        result.onFailure {
+        }.onFailure {
             AppLogger.w(TAG, "Agent forwarding request failed: ${it.message}")
             onEvent(SshEvent.Status("Agent forwarding is not supported by this session"))
         }
     }
-
-    // ---------------------------------------------------------------------------------------
-    // Teardown
-    // ---------------------------------------------------------------------------------------
 
     fun disconnect(reason: String? = null) {
         if (closing) return
@@ -313,17 +259,15 @@ class SshConnection(
         hops.clear()
     }
 
-    companion object {
-        private const val TAG = "SshConnection"
-        private const val CLIENT_VERSION = "NexusSSH_1.0"
-
-        /** Only used to fill the pixel fields of the PTY request. */
-        private const val CELL_WIDTH_PX = 8
-        private const val CELL_HEIGHT_PX = 16
+    private companion object {
+        const val TAG = "SshConnection"
+        const val CLIENT_VERSION = "NexusSSH_1.0"
+        const val CELL_WIDTH_PX = 8
+        const val CELL_HEIGHT_PX = 16
     }
 }
 
-/** An interactive shell channel plus its streams. */
+/** An interactive shell channel plus the input/output streams used by TerminalSession. */
 class SshShellChannel(
     private val session: Session,
     private val shell: Session.Shell,
@@ -334,10 +278,11 @@ class SshShellChannel(
 
     val isOpen: Boolean get() = shell.isOpen
 
-    val exitStatus: Int? get() = runCatching { shell.exitStatus }.getOrNull()
+    /** SSHJ exposes exit status only for command channels, not persistent PTY shells. */
+    val exitStatus: Int? get() = null
 
-    /** Exit signal name (e.g. `HUP`) when the shell was killed rather than exiting. */
-    val exitSignal: String? get() = runCatching { shell.exitSignal?.name }.getOrNull()
+    /** SSHJ exposes no interactive-shell exit signal. */
+    val exitSignal: String? get() = null
 
     @Synchronized
     fun write(bytes: ByteArray, length: Int = bytes.size) {
@@ -349,7 +294,6 @@ class SshShellChannel(
         runCatching { shell.changeWindowDimensions(columns, rows, columns * 8, rows * 16) }
     }
 
-    /** Sends a POSIX signal, used by the "send SIGINT/SIGHUP" actions. */
     fun signal(signal: Signal) {
         runCatching { shell.signal(signal.sshjSignal) }
     }
@@ -369,10 +313,9 @@ class SshShellChannel(
     }
 }
 
-/** Wraps every failure the SSH layer can produce into one type the UI can present. */
 class SshConnectionException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
-/** Turns SSHJ's exception zoo into something worth showing a human. */
+/** Turns SSHJ's exception zoo into wording useful in the UI. */
 fun Throwable.friendlyMessage(): String {
     val raw = message?.takeIf { it.isNotBlank() } ?: this::class.java.simpleName
     return when {
