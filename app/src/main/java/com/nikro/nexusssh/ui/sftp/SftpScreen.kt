@@ -55,13 +55,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * The remote file browser.
- *
- * One pane, because a phone has no room for two: the path is the breadcrumb in the app bar, and
- * the local side is reached through the system picker for uploads and the app's files folder for
- * downloads. Long file operations report progress in a bar under the app bar.
- */
+/** One-pane remote file browser for an active SFTP session. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SftpScreen(
@@ -105,7 +99,7 @@ fun SftpScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.MiddleEllipsis,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 },
@@ -190,10 +184,7 @@ fun SftpScreen(
             initial = "",
             confirmLabel = "Create",
             onDismiss = { newFolderOpen = false },
-            onConfirm = {
-                newFolderOpen = false
-                viewModel.createDirectory(it)
-            },
+            onConfirm = { value -> newFolderOpen = false; viewModel.createDirectory(value) },
         )
     }
 
@@ -204,10 +195,7 @@ fun SftpScreen(
             initial = entry.name,
             confirmLabel = "Save",
             onDismiss = { renaming = null },
-            onConfirm = {
-                renaming = null
-                viewModel.rename(entry, it)
-            },
+            onConfirm = { value -> renaming = null; viewModel.rename(entry, value) },
         )
     }
 
@@ -218,10 +206,7 @@ fun SftpScreen(
             initial = entry.octalPermissions,
             confirmLabel = "Apply",
             onDismiss = { chmodTarget = null },
-            onConfirm = {
-                chmodTarget = null
-                viewModel.chmod(entry, it)
-            },
+            onConfirm = { value -> chmodTarget = null; viewModel.chmod(entry, value) },
         )
     }
 }
@@ -237,9 +222,7 @@ private fun EntryRow(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     ListItem(
-        headlineContent = {
-            Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        },
+        headlineContent = { Text(entry.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = {
             Text(
                 text = buildString {
@@ -258,11 +241,7 @@ private fun EntryRow(
         },
         leadingContent = {
             Icon(
-                imageVector = if (entry.isDirectory) {
-                    Icons.Rounded.KeyboardArrowRight
-                } else {
-                    Icons.Rounded.Share
-                },
+                imageVector = if (entry.isDirectory) Icons.Rounded.KeyboardArrowRight else Icons.Rounded.Share,
                 contentDescription = null,
             )
         },
@@ -275,41 +254,27 @@ private fun EntryRow(
                     if (!entry.isDirectory) {
                         DropdownMenuItem(
                             text = { Text("Download") },
-                            onClick = {
-                                menuOpen = false
-                                onDownload()
-                            },
+                            onClick = { menuOpen = false; onDownload() },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text("Rename") },
-                        onClick = {
-                            menuOpen = false
-                            onRename()
-                        },
+                        onClick = { menuOpen = false; onRename() },
                         leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = null) },
                     )
                     DropdownMenuItem(
                         text = { Text("Permissions") },
-                        onClick = {
-                            menuOpen = false
-                            onChmod()
-                        },
+                        onClick = { menuOpen = false; onChmod() },
                     )
                     DropdownMenuItem(
                         text = { Text("Delete") },
-                        onClick = {
-                            menuOpen = false
-                            onDelete()
-                        },
+                        onClick = { menuOpen = false; onDelete() },
                         leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                     )
                 }
             }
         },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onOpen),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen),
     )
 }
 
