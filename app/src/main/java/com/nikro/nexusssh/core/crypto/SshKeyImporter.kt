@@ -1,5 +1,6 @@
 package com.nikro.nexusssh.core.crypto
 
+import com.hierynomus.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile
 import com.nikro.nexusssh.core.log.AppLogger
 import com.nikro.nexusssh.domain.model.SshKeyType
 import com.nikro.nexusssh.ssh.SecurityProviderInstaller
@@ -10,8 +11,6 @@ import net.schmizz.sshj.userauth.keyprovider.FileKeyProvider
 import net.schmizz.sshj.userauth.keyprovider.KeyFormat
 import net.schmizz.sshj.userauth.keyprovider.KeyProviderUtil
 import net.schmizz.sshj.userauth.keyprovider.OpenSSHKeyFile
-import net.schmizz.sshj.userauth.keyprovider.OpenSSHKeyV1KeyFile
-import net.schmizz.sshj.userauth.keyprovider.PKCS5KeyFile
 import net.schmizz.sshj.userauth.keyprovider.PKCS8KeyFile
 import net.schmizz.sshj.userauth.keyprovider.PuTTYKeyFile
 import java.io.StringReader
@@ -20,15 +19,13 @@ import java.security.KeyPair
 /**
  * Imports private keys pasted or picked from storage.
  *
- * Parsing is delegated to SSHJ, which understands every format users actually have:
- * `openssh-key-v1` (including bcrypt-encrypted), classic PEM (PKCS#1/SEC1), PKCS#8 and PuTTY
- * `.ppk`. The parsed pair is then re-serialised into one canonical unencrypted `openssh-key-v1`
- * blob before it goes into the vault, so the rest of the app only ever deals with one format.
+ * SSHJ parses OpenSSH v1 (including bcrypt-encrypted keys), classic PEM (PKCS#1 / SEC1), PKCS#8
+ * and PuTTY PPK. After a successful read, the pair is normalised to one canonical format before
+ * being sealed by [CryptoVault].
  */
 class SshKeyImporter {
 
     sealed interface ParseResult {
-        /** The key was read and normalised. */
         data class Success(
             val type: SshKeyType,
             val normalizedPem: String,
@@ -42,7 +39,6 @@ class SshKeyImporter {
             val wasEncrypted: Boolean,
         ) : ParseResult
 
-        /** The file is encrypted and the passphrase was missing or wrong. */
         data class NeedsPassphrase(val sourceFormat: String, val wrongPassphrase: Boolean) : ParseResult
 
         data class Failure(val message: String) : ParseResult
@@ -112,17 +108,17 @@ class SshKeyImporter {
         }
     }
 
-    /** Picks the SSHJ reader that matches the file, falling back to format detection. */
+    /** Picks the SSHJ reader that matches the file, falling back to SSHJ format detection. */
     private fun providerFor(pem: String): FileKeyProvider = when {
         pem.contains("BEGIN OPENSSH PRIVATE KEY") -> OpenSSHKeyV1KeyFile()
         pem.contains("PuTTY-User-Key-File") -> PuTTYKeyFile()
         else -> when (KeyProviderUtil.detectKeyFileFormat(pem, false)) {
             KeyFormat.OpenSSHv1 -> OpenSSHKeyV1KeyFile()
+            // SSHJ uses OpenSSHKeyFile for classic PEM / PKCS#1 / SEC1 material.
             KeyFormat.OpenSSH -> OpenSSHKeyFile()
             KeyFormat.PKCS8 -> PKCS8KeyFile()
-            KeyFormat.PKCS5 -> PKCS5KeyFile()
             KeyFormat.PuTTY -> PuTTYKeyFile()
-            else -> throw IllegalArgumentException("Unsupported key file")
+            KeyFormat.Unknown -> throw IllegalArgumentException("Unsupported key file")
         }
     }
 
@@ -134,7 +130,7 @@ class SshKeyImporter {
         return ""
     }
 
-    /** Reads a public key file (`id_ed25519.pub`) for the "paste public key" flow. */
+    /** Reads a public key file (`id_ed25519.pub`) for the paste-public-key flow. */
     fun parsePublicKey(line: String): ParseResult = runCatching {
         val info = SshKeyCodec.parsePublicKeyLine(line)
         ParseResult.Success(
