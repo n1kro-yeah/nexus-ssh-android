@@ -19,6 +19,8 @@ import com.nikro.nexusssh.domain.model.PortForwardRule
 import com.nikro.nexusssh.domain.model.Snippet
 import com.nikro.nexusssh.domain.model.SshKey
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,9 +28,9 @@ import javax.inject.Singleton
 /**
  * Encrypted export/import of the whole vault.
  *
- * The archive is a single JSON document. Secrets are *re-sealed* with a password the user types
- * at export time ([CryptoVault.sealPortable]), because the device-bound Keystore key by design
- * cannot leave the device - a raw database copy would be unrecoverable on a new phone.
+ * The archive is a single JSON document. Secrets are re-sealed with a password the user types at
+ * export time ([CryptoVault.sealPortable]), because the device-bound Keystore key cannot leave a
+ * device: a raw database copy would be unrecoverable on a new phone.
  */
 @Singleton
 class BackupManager @Inject constructor(
@@ -74,7 +76,7 @@ class BackupManager @Inject constructor(
      * Builds the archive text.
      *
      * @param password when non-null every secret is re-sealed with it; when null secrets are
-     *   dropped entirely and only the structure is exported.
+     * dropped entirely and only the structure is exported.
      */
     suspend fun export(password: CharArray?): String {
         val includeSecrets = password != null && password.isNotEmpty()
@@ -110,14 +112,13 @@ class BackupManager @Inject constructor(
             knownHosts = knownHostDao.getAll().map { it.toDomain() },
         )
 
-        password?.fill('\u0000')
+        password?.fill(Char.MIN_VALUE)
         AppLogger.i(TAG, "Exported ${archive.hosts.size} hosts, secrets=$includeSecrets")
         return JSON.encodeToString(archive)
     }
 
     /**
-     * Restores an archive. IDs are re-assigned, and every cross-reference (group -> parent,
-     * host -> key/identity/jump host, forward -> host) is remapped onto the new IDs.
+     * Restores an archive. IDs are re-assigned and cross-references are remapped onto new IDs.
      */
     suspend fun import(text: String, password: CharArray?, merge: Boolean = true): ImportSummary {
         val archive = runCatching { JSON.decodeFromString<Archive>(text) }.getOrElse {
@@ -138,18 +139,18 @@ class BackupManager @Inject constructor(
             if (portable.isNullOrBlank() || password == null) return null
             return try {
                 vault.seal(vault.openPortable(portable, password.copyOf()))
-            } catch (t: Throwable) {
+            } catch (error: Throwable) {
                 warnings += "A secret could not be decrypted - wrong password?"
-                AppLogger.w(TAG, "Portable unseal failed: ${t.message}")
+                AppLogger.w(TAG, "Portable unseal failed: ${error.message}")
                 null
             }
         }
 
         if (!merge) {
-            AppLogger.w(TAG, "Replacing the existing vault contents")
+            AppLogger.w(TAG, "Replace mode requested; importing archive records with new IDs")
         }
 
-        // ------------------------------------------------------------------ groups (two passes)
+        // Groups are inserted first, then parent pointers are remapped in a second pass.
         val groupIdMap = mutableMapOf<Long, Long>()
         archive.groups.sortedBy { it.parentId ?: 0 }.forEach { group ->
             val newId = groupDao.upsert(group.copy(id = 0, parentId = null).toEntity())
@@ -163,7 +164,6 @@ class BackupManager @Inject constructor(
             }
         }
 
-        // ------------------------------------------------------------------------------- keys
         val keyIdMap = mutableMapOf<Long, Long>()
         archive.keys.forEach { key ->
             val sealedPrivate = unseal(key.sealedPrivateKey)
@@ -181,7 +181,6 @@ class BackupManager @Inject constructor(
             keyIdMap[key.id] = newId
         }
 
-        // ------------------------------------------------------------------------- identities
         val identityIdMap = mutableMapOf<Long, Long>()
         archive.identities.forEach { identity ->
             val newId = identityDao.upsert(
@@ -194,7 +193,7 @@ class BackupManager @Inject constructor(
             identityIdMap[identity.id] = newId
         }
 
-        // ------------------------------------------------------------------ hosts (two passes)
+        // Hosts are also a two-pass import because jump hosts reference other hosts.
         val hostIdMap = mutableMapOf<Long, Long>()
         archive.hosts.forEach { host ->
             val newId = hostDao.insert(
@@ -215,7 +214,6 @@ class BackupManager @Inject constructor(
             hostDao.findById(newId)?.let { hostDao.update(it.copy(jumpHostId = jump)) }
         }
 
-        // -------------------------------------------------------------- snippets and forwards
         archive.snippets.forEach { snippetDao.upsert(it.copy(id = 0).toEntity()) }
         var importedForwards = 0
         archive.forwards.forEach { rule ->
@@ -230,7 +228,7 @@ class BackupManager @Inject constructor(
 
         archive.knownHosts.forEach { knownHostDao.insert(it.copy(id = 0).toEntity()) }
 
-        password?.fill('\u0000')
+        password?.fill(Char.MIN_VALUE)
         val summary = ImportSummary(
             groups = groupIdMap.size,
             hosts = hostIdMap.size,
