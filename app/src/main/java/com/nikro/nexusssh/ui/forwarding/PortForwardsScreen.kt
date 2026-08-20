@@ -65,13 +65,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Tunnel rules.
- *
- * Local (-L), remote (-R) and dynamic (-D) forwarding, each bound to a host. Rules marked "start
- * automatically" are brought up by the forwarding service after boot, so a phone that reboots
- * overnight still has its tunnels in the morning.
- */
+/** Tunnel rule list and editor. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PortForwardsScreen(
@@ -107,16 +101,14 @@ fun PortForwardsScreen(
                     IconButton(
                         onClick = { PortForwardService.startAuto(context) },
                         enabled = state.rules.any { it.enabled },
-                    ) {
-                        Icon(Icons.Rounded.PlayArrow, contentDescription = "Start tunnels")
-                    }
+                    ) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Start tunnels") }
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { creating = true },
-            ) { Icon(Icons.Rounded.Add, contentDescription = "New rule") }
+            FloatingActionButton(onClick = { creating = true }) {
+                Icon(Icons.Rounded.Add, contentDescription = "New rule")
+            }
         },
     ) { padding ->
         if (state.rules.isEmpty()) {
@@ -130,11 +122,7 @@ fun PortForwardsScreen(
                 modifier = Modifier.padding(padding),
             )
         } else {
-            LazyColumn(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-            ) {
+            LazyColumn(Modifier.fillMaxSize().padding(padding)) {
                 items(state.rules, key = { it.id }) { rule ->
                     RuleRow(
                         rule = rule,
@@ -152,10 +140,7 @@ fun PortForwardsScreen(
         RuleEditorDialog(
             initial = editing,
             hosts = state.hosts,
-            onDismiss = {
-                creating = false
-                editing = null
-            },
+            onDismiss = { creating = false; editing = null },
             onSave = { rule ->
                 creating = false
                 editing = null
@@ -176,11 +161,7 @@ private fun RuleRow(
     var menuOpen by remember { mutableStateOf(false) }
     ListItem(
         headlineContent = {
-            Text(
-                text = rule.label.ifBlank { rule.type.displayName },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Text(rule.label.ifBlank { rule.type.displayName }, maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         supportingContent = {
             Column {
@@ -209,17 +190,12 @@ private fun RuleRow(
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
                         text = { Text("Delete rule") },
-                        onClick = {
-                            menuOpen = false
-                            onDelete()
-                        },
+                        onClick = { menuOpen = false; onDelete() },
                     )
                 }
             }
         },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onEdit),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onEdit),
     )
 }
 
@@ -256,70 +232,47 @@ private fun RuleEditorDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AssistChip(
-                        onClick = { typeMenu = true },
-                        label = { Text(type.displayName + " (" + type.sshFlag + ")") },
-                    )
+                    AssistChip(onClick = { typeMenu = true }, label = { Text(type.displayName + " (" + type.sshFlag + ")") })
                     DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
                         ForwardType.entries.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option.displayName + "  " + option.sshFlag) },
-                                onClick = {
-                                    type = option
-                                    typeMenu = false
-                                },
+                                onClick = { type = option; typeMenu = false },
                             )
                         }
                     }
                 }
-
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AssistChip(
-                        onClick = { hostMenu = true },
-                        label = { Text(selectedHost?.label ?: "Choose host") },
-                    )
+                    AssistChip(onClick = { hostMenu = true }, label = { Text(selectedHost?.label ?: "Choose host") })
                     DropdownMenu(expanded = hostMenu, onDismissRequest = { hostMenu = false }) {
                         hosts.forEach { host ->
                             DropdownMenuItem(
                                 text = { Text(host.label) },
-                                onClick = {
-                                    hostId = host.id
-                                    hostMenu = false
-                                },
+                                onClick = { hostId = host.id; hostMenu = false },
                             )
                         }
                     }
                 }
-
                 OutlinedTextField(
                     value = bindAddress,
                     onValueChange = { bindAddress = it },
                     label = { Text("Bind address") },
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 OutlinedTextField(
                     value = localPort,
                     onValueChange = { localPort = it.filter(Char::isDigit).take(5) },
                     label = { Text(if (dynamic) "SOCKS port" else "Local port") },
                     singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 if (!dynamic) {
                     OutlinedTextField(
@@ -327,32 +280,22 @@ private fun RuleEditorDialog(
                         onValueChange = { remoteHost = it },
                         label = { Text("Remote host") },
                         singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                     OutlinedTextField(
                         value = remotePort,
                         onValueChange = { remotePort = it.filter(Char::isDigit).take(5) },
                         label = { Text("Remote port") },
                         singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }
-
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(checked = autoStart, onCheckedChange = { autoStart = it })
-                    Text(
-                        text = "Start automatically after boot",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Text("Start automatically after boot", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
@@ -361,7 +304,7 @@ private fun RuleEditorDialog(
                 enabled = hostId != 0L && localPort.isNotBlank(),
                 onClick = {
                     onSave(
-                        (initial ?: PortForwardRule(type = type, hostId = hostId)).copy(
+                        (initial ?: PortForwardRule(label = "", type = type, hostId = hostId)).copy(
                             label = label.trim(),
                             type = type,
                             hostId = hostId,
@@ -379,13 +322,11 @@ private fun RuleEditorDialog(
     )
 }
 
-/** Rule list, validation and persistence. */
 @HiltViewModel
 class PortForwardsViewModel @Inject constructor(
     private val repository: PortForwardRepository,
     hostRepository: HostRepository,
 ) : ViewModel() {
-
     data class UiState(
         val rules: List<PortForwardRule> = emptyList(),
         val hosts: List<Host> = emptyList(),
@@ -393,20 +334,15 @@ class PortForwardsViewModel @Inject constructor(
     )
 
     private val message = MutableStateFlow<String?>(null)
-
     val state: StateFlow<UiState> = combine(
         repository.observeAll(),
         hostRepository.observeHosts(),
         message,
-    ) { rules, hosts, text ->
-        UiState(rules = rules, hosts = hosts, message = text)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
+    ) { rules, hosts, text -> UiState(rules, hosts, text) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), UiState())
 
-    fun dismissMessage() {
-        message.value = null
-    }
+    fun dismissMessage() { message.value = null }
 
-    /** Rejects impossible rules before they reach the tunnel manager. */
     fun save(rule: PortForwardRule) {
         val problem = repository.validate(rule)
         if (problem != null) {
@@ -420,7 +356,5 @@ class PortForwardsViewModel @Inject constructor(
         viewModelScope.launch { repository.save(rule.copy(enabled = enabled)) }
     }
 
-    fun delete(id: Long) {
-        viewModelScope.launch { repository.delete(id) }
-    }
+    fun delete(id: Long) { viewModelScope.launch { repository.delete(id) } }
 }

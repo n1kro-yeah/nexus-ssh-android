@@ -20,13 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-/**
- * Editing state for a single host.
- *
- * The password is kept separately from the [Host] object: it is sealed only on save, and an empty
- * field means "leave whatever was stored alone" rather than "delete it", which is what people
- * expect when they edit a hostname and press save.
- */
+/** Editing state for a single host. */
 @HiltViewModel
 class HostEditorViewModel @Inject constructor(
     private val hosts: HostRepository,
@@ -58,10 +52,9 @@ class HostEditorViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
-
     private var loadedFor: Long? = null
 
-    /** Loads an existing host, or prepares a new one seeded from the app defaults. */
+    /** Loads an existing host, or prepares a new one seeded from app defaults. */
     fun load(hostId: Long) {
         if (loadedFor == hostId) return
         loadedFor = hostId
@@ -105,12 +98,7 @@ class HostEditorViewModel @Inject constructor(
         _state.update { it.copy(message = null) }
     }
 
-    /**
-     * Persists the host.
-     *
-     * Group defaults are applied first, so a host that inherits its identity or port from a group
-     * is stored with those values resolved instead of leaving them empty at connect time.
-     */
+    /** Applies group defaults, seals a touched password, then persists the host. */
     fun save() {
         val current = _state.value
         if (!current.canSave) {
@@ -127,18 +115,15 @@ class HostEditorViewModel @Inject constructor(
                 current.host.copy(
                     label = current.host.label.trim(),
                     hostname = current.host.hostname.trim(),
-                    username = current.host.username.trim(),
+                    username = current.host.username?.trim()?.ifBlank { null },
                     sealedPassword = sealedPassword,
                     updatedAt = System.currentTimeMillis(),
                 ),
             )
-            val result = runCatching { hosts.save(prepared) }
-            result.fold(
+            runCatching { hosts.save(prepared) }.fold(
                 onSuccess = { id -> _state.update { it.copy(savedId = id) } },
                 onFailure = { failure ->
-                    _state.update {
-                        it.copy(message = failure.message ?: "Could not save this host")
-                    }
+                    _state.update { it.copy(message = failure.message ?: "Could not save this host") }
                 },
             )
         }
