@@ -46,13 +46,7 @@ import com.nikro.nexusssh.ui.components.ConfirmDialog
 import com.nikro.nexusssh.ui.components.SectionHeader
 import com.nikro.nexusssh.ui.settings.SwitchRow
 
-/**
- * Host editor.
- *
- * Grouped the way people think about a server: how to reach it, how to prove who you are, how to
- * get through the network in between, and how the terminal should look once you are in. Anything
- * left empty falls back to the group default and then to the app default.
- */
+/** Host editor grouped by connection, authentication, network and terminal settings. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostEditorScreen(
@@ -75,7 +69,6 @@ fun HostEditorScreen(
     }
 
     val host = state.host
-
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -120,14 +113,10 @@ fun HostEditorScreen(
                 onValueChange = { value -> viewModel.edit { it.copy(hostname = value) } },
                 label = { Text("Hostname or IP") },
                 singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedTextField(
@@ -142,7 +131,7 @@ fun HostEditorScreen(
                     modifier = Modifier.weight(1f),
                 )
                 OutlinedTextField(
-                    value = host.username,
+                    value = host.username.orEmpty(),
                     onValueChange = { value -> viewModel.edit { it.copy(username = value) } },
                     label = { Text("Username") },
                     singleLine = true,
@@ -150,9 +139,7 @@ fun HostEditorScreen(
                 )
             }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Protocol.entries.forEach { protocol ->
@@ -162,11 +149,7 @@ fun HostEditorScreen(
                             viewModel.edit {
                                 it.copy(
                                     protocol = protocol,
-                                    port = if (protocol.defaultPort > 0) {
-                                        protocol.defaultPort
-                                    } else {
-                                        it.port
-                                    },
+                                    port = if (protocol.defaultPort > 0) protocol.defaultPort else it.port,
                                 )
                             }
                         },
@@ -181,13 +164,7 @@ fun HostEditorScreen(
                 value = state.password,
                 onValueChange = viewModel::setPassword,
                 label = {
-                    Text(
-                        if (state.isNew || state.passwordTouched) {
-                            "Password"
-                        } else {
-                            "Password (leave empty to keep)"
-                        },
-                    )
+                    Text(if (state.isNew || state.passwordTouched) "Password" else "Password (leave empty to keep)")
                 },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
@@ -198,16 +175,13 @@ fun HostEditorScreen(
                 label = "Key",
                 selected = state.keys.firstOrNull { it.id == host.keyId }?.label ?: "None",
                 options = listOf(0L to "None") + state.keys.map { it.id to it.label },
-                onSelect = { id -> viewModel.edit { it.copy(keyId = id.takeIf { v -> v > 0 }) } },
+                onSelect = { id -> viewModel.edit { it.copy(keyId = id.takeIf { value -> value > 0 }) } },
             )
             PickerRow(
                 label = "Identity",
-                selected = state.identities.firstOrNull { it.id == host.identityId }?.label
-                    ?: "None",
+                selected = state.identities.firstOrNull { it.id == host.identityId }?.label ?: "None",
                 options = listOf(0L to "None") + state.identities.map { it.id to it.label },
-                onSelect = { id ->
-                    viewModel.edit { it.copy(identityId = id.takeIf { v -> v > 0 }) }
-                },
+                onSelect = { id -> viewModel.edit { it.copy(identityId = id.takeIf { value -> value > 0 }) } },
             )
             SwitchRow(
                 title = "Agent forwarding",
@@ -220,13 +194,9 @@ fun HostEditorScreen(
             SectionHeader("Network")
             PickerRow(
                 label = "Jump host",
-                selected = state.jumpCandidates.firstOrNull { it.id == host.jumpHostId }?.label
-                    ?: "Direct",
-                options = listOf(0L to "Direct") +
-                    state.jumpCandidates.map { it.id to it.label },
-                onSelect = { id ->
-                    viewModel.edit { it.copy(jumpHostId = id.takeIf { v -> v > 0 }) }
-                },
+                selected = state.jumpCandidates.firstOrNull { it.id == host.jumpHostId }?.label ?: "Direct",
+                options = listOf(0L to "Direct") + state.jumpCandidates.map { it.id to it.label },
+                onSelect = { id -> viewModel.edit { it.copy(jumpHostId = id.takeIf { value -> value > 0 }) } },
             )
             SwitchRow(
                 title = "Compression",
@@ -238,14 +208,10 @@ fun HostEditorScreen(
                 title = "Strict host key checking",
                 subtitle = "Refuse to connect if the server key changed",
                 checked = host.strictHostKeyChecking,
-                onCheckedChange = { value ->
-                    viewModel.edit { it.copy(strictHostKeyChecking = value) }
-                },
+                onCheckedChange = { value -> viewModel.edit { it.copy(strictHostKeyChecking = value) } },
             )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedTextField(
@@ -286,14 +252,10 @@ fun HostEditorScreen(
                 onValueChange = { value -> viewModel.edit { it.copy(charset = value) } },
                 label = { Text("Character set") },
                 singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 BackspaceMode.entries.forEach { mode ->
@@ -306,12 +268,9 @@ fun HostEditorScreen(
             }
             PickerRow(
                 label = "Run on connect",
-                selected = state.snippets.firstOrNull { it.id == host.startupSnippetId }?.name
-                    ?: "Nothing",
+                selected = state.snippets.firstOrNull { it.id == host.startupSnippetId }?.name ?: "Nothing",
                 options = listOf(0L to "Nothing") + state.snippets.map { it.id to it.name },
-                onSelect = { id ->
-                    viewModel.edit { it.copy(startupSnippetId = id.takeIf { v -> v > 0 }) }
-                },
+                onSelect = { id -> viewModel.edit { it.copy(startupSnippetId = id.takeIf { value -> value > 0 }) } },
             )
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
@@ -320,7 +279,7 @@ fun HostEditorScreen(
                 label = "Group",
                 selected = state.groups.firstOrNull { it.id == host.groupId }?.name ?: "Ungrouped",
                 options = listOf(0L to "Ungrouped") + state.groups.map { it.id to it.name },
-                onSelect = { id -> viewModel.edit { it.copy(groupId = id.takeIf { v -> v > 0 }) } },
+                onSelect = { id -> viewModel.edit { it.copy(groupId = id.takeIf { value -> value > 0 }) } },
             )
             OutlinedTextField(
                 value = host.tags.joinToString(", "),
@@ -338,9 +297,7 @@ fun HostEditorScreen(
                 label = { Text("Notes") },
                 minLines = 2,
                 maxLines = 5,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
             SwitchRow(
                 title = "Favourite",
@@ -360,19 +317,14 @@ fun HostEditorScreen(
     if (confirmDelete) {
         ConfirmDialog(
             title = "Delete host?",
-            message = "The host and its port-forwarding rules are removed. Keys and known-host " +
-                "entries are kept.",
+            message = "The host and its port-forwarding rules are removed. Keys and known-host entries are kept.",
             confirmLabel = "Delete",
-            onConfirm = {
-                confirmDelete = false
-                viewModel.delete()
-            },
+            onConfirm = { confirmDelete = false; viewModel.delete() },
             onDismiss = { confirmDelete = false },
         )
     }
 }
 
-/** Single-choice row rendered as a chip that opens a menu. */
 @Composable
 private fun PickerRow(
     label: String,
@@ -382,9 +334,7 @@ private fun PickerRow(
 ) {
     var open by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -397,10 +347,7 @@ private fun PickerRow(
             options.forEach { (id, title) ->
                 DropdownMenuItem(
                     text = { Text(title) },
-                    onClick = {
-                        open = false
-                        onSelect(id)
-                    },
+                    onClick = { open = false; onSelect(id) },
                 )
             }
         }

@@ -137,12 +137,19 @@ class SshConnection(
         }
         if (target.allowPasswordAuth) {
             methods += AuthPassword(
-                PromptingPasswordFinder(target.username, target.password, onPrompt),
+                PromptingPasswordFinder(
+                    username = target.username,
+                    stored = target.password,
+                    onPrompt = onPrompt,
+                ),
             )
         }
         if (target.allowKeyboardInteractive) {
             methods += AuthKeyboardInteractive(
-                PromptingChallengeResponder(target.password, onPrompt),
+                PromptingChallengeResponder(
+                    storedPassword = target.password,
+                    onPrompt = onPrompt,
+                ),
             )
         }
         require(methods.isNotEmpty()) { "No authentication method available for ${target.address}" }
