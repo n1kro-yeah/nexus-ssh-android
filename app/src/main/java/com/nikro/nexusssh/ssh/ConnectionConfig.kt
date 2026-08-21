@@ -4,13 +4,7 @@ import com.nikro.nexusssh.domain.model.BackspaceMode
 import com.nikro.nexusssh.domain.model.Host
 import com.nikro.nexusssh.domain.model.Protocol
 
-/**
- * A fully resolved set of connection parameters.
- *
- * The repositories flatten group defaults, identities, keys and app-wide settings into this
- * object *before* the SSH layer runs, so [SshConnection] never has to touch the database and can
- * be unit-tested against plain data.
- */
+/** Fully resolved connection parameters, independent of database access. */
 data class ConnectionConfig(
     val hostId: Long,
     val label: String,
@@ -41,7 +35,6 @@ data class ConnectionConfig(
     val allowAgentAuth: Boolean = true,
 ) {
     val address: String get() = "$username@$hostname:$port"
-
     val hasSecrets: Boolean get() = password != null || keys.isNotEmpty()
 
     companion object {
@@ -79,18 +72,19 @@ data class ConnectionConfig(
     }
 }
 
-/** An unsealed private key ready to be handed to SSHJ. */
+/** An unsealed private key ready to hand to SSHJ. */
 data class PrivateKeyMaterial(
     val keyId: Long,
     val label: String,
     val pem: String,
     val passphrase: CharArray? = null,
 ) {
-    // Data classes with array members need explicit equality to behave sanely in sets/maps.
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is PrivateKeyMaterial) return false
-        return keyId == other.keyId && label == other.label && pem == other.pem &&
+        return keyId == other.keyId &&
+            label == other.label &&
+            pem == other.pem &&
             passphrase.contentEqualsNullable(other.passphrase)
     }
 
@@ -103,13 +97,13 @@ data class PrivateKeyMaterial(
     }
 
     fun wipe() {
-        passphrase?.fill('\u0000')
+        passphrase?.fill(Char.MIN_VALUE)
     }
 
     private fun CharArray?.contentEqualsNullable(other: CharArray?): Boolean = when {
         this == null && other == null -> true
         this == null || other == null -> false
-        else -> this.contentEquals(other)
+        else -> contentEquals(other)
     }
 }
 

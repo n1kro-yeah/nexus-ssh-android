@@ -11,40 +11,26 @@ import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.PBEKeySpec
 
 /**
  * Envelope encryption for every secret the app persists (passwords, private keys, passphrases).
- *
- * Design
- * ------
- * * A hardware-backed AES-256 key lives in the AndroidKeyStore (`nexus_vault_master`). It never
- *   leaves the secure element and is used to wrap the *data encryption key*.
- * * Records are sealed with AES-256-GCM. The stored blob is:
- *   `v1:<base64(iv)>:<base64(ciphertext||tag)>`.
- * * When the user enables a master passcode, an additional PBKDF2-HMAC-SHA256 derived key is
- *   XOR-composed with the Keystore key, so an attacker with device access still needs the passcode.
- *
- * All methods are safe to call from any thread.
+ * A hardware-backed AES key wraps data encrypted with AES-256-GCM; an optional PBKDF2-derived
+ * passcode key adds a second layer for archives and protected local records.
  */
 @Singleton
 class CryptoVault @Inject constructor(
     private val context: Context,
 ) {
-
     private val secureRandom = SecureRandom()
 
     @Volatile
     private var passcodeKey: SecretKey? = null
-
-    // ---------------------------------------------------------------------------------------
-    // Keystore master key
-    // ---------------------------------------------------------------------------------------
 
     private val keyStore: KeyStore by lazy {
         KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -68,7 +54,7 @@ class CryptoVault @Inject constructor(
             builder.setUserAuthenticationRequired(true)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 builder.setUserAuthenticationParameters(
-                    /* timeout = */ 0,
+                    0,
                     KeyProperties.AUTH_BIOMETRIC_STRONG or KeyProperties.AUTH_DEVICE_CREDENTIAL,
                 )
             } else {
@@ -80,7 +66,8 @@ class CryptoVault @Inject constructor(
             }
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
             context.packageManager.hasSystemFeature("android.hardware.strongbox_keystore")
         ) {
             runCatching { builder.setIsStrongBoxBacked(true) }
@@ -89,9 +76,9 @@ class CryptoVault @Inject constructor(
         return try {
             generator.init(builder.build())
             generator.generateKey()
-        } catch (t: Throwable) {
-            // StrongBox can reject the spec on some OEM devices - retry without it.
-            AppLogger.w(TAG, "Falling back to non-StrongBox key generation: ${t.message}")
+        } catch (error: Throwable) {
+            // StrongBox can reject the spec on some OEM devices; retry without it.
+            AppLogger.w(TAG, "Falling back to non-StrongBox key generation: ${error.message}")
             val fallbackBuilder = KeyGenParameterSpec.Builder(
                 alias,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
@@ -105,14 +92,10 @@ class CryptoVault @Inject constructor(
         }
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Passcode layer
-    // ---------------------------------------------------------------------------------------
-
     /** Derives and caches the passcode-derived key for this process lifetime. */
     fun unlockWithPasscode(passcode: CharArray, saltBase64: String) {
         passcodeKey = deriveKey(passcode, Base64.decode(saltBase64, Base64.NO_WRAP))
-        passcode.fill('\u0000')
+        passcode.fill(Char.MIN_VALUE)
     }
 
     fun lock() {
@@ -126,10 +109,7 @@ class CryptoVault @Inject constructor(
         return Base64.encodeToString(salt, Base64.NO_WRAP)
     }
 
-    /**
-     * Produces a verifier that can be stored in preferences to check a passcode without keeping
-     * the passcode itself: `PBKDF2(passcode, salt)` hashed once more with a fixed info string.
-     */
+    /** Produces a stable verifier without persisting the passcode itself. */
     fun passcodeVerifier(passcode: CharArray, saltBase64: String): String {
         val derived = deriveKey(passcode.copyOf(), Base64.decode(saltBase64, Base64.NO_WRAP))
         val digest = java.security.MessageDigest.getInstance("SHA-256")
@@ -146,11 +126,7 @@ class CryptoVault @Inject constructor(
         return SecretKeySpec(bytes, "AES")
     }
 
-    // ---------------------------------------------------------------------------------------
-    // Sealing / opening
-    // ---------------------------------------------------------------------------------------
-
-    /** Encrypts [plaintext]; returns `null` when [plaintext] is null so callers can pass through. */
+    /** Encrypts [plaintext]; returns null when [plaintext] is null. */
     fun seal(plaintext: String?): String? = plaintext?.let { seal(it.toByteArray(Charsets.UTF_8)) }
 
     fun seal(plaintext: ByteArray): String {
@@ -158,13 +134,13 @@ class CryptoVault @Inject constructor(
         cipher.init(Cipher.ENCRYPT_MODE, masterKey())
         val iv = cipher.iv
         val payload = passcodeKey?.let { xorLayer(plaintext, it, iv) } ?: plaintext
-        val ct = cipher.doFinal(payload)
+        val ciphertext = cipher.doFinal(payload)
         return buildString {
             append(FORMAT_VERSION)
             append(':')
             append(Base64.encodeToString(iv, Base64.NO_WRAP))
             append(':')
-            append(Base64.encodeToString(ct, Base64.NO_WRAP))
+            append(Base64.encodeToString(ciphertext, Base64.NO_WRAP))
         }
     }
 
@@ -179,34 +155,31 @@ class CryptoVault @Inject constructor(
         }
         return try {
             val iv = Base64.decode(parts[1], Base64.NO_WRAP)
-            val ct = Base64.decode(parts[2], Base64.NO_WRAP)
+            val ciphertext = Base64.decode(parts[2], Base64.NO_WRAP)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, masterKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
-            val decrypted = cipher.doFinal(ct)
+            val decrypted = cipher.doFinal(ciphertext)
             passcodeKey?.let { xorLayer(decrypted, it, iv) } ?: decrypted
-        } catch (t: Throwable) {
-            AppLogger.e(TAG, "Unable to open sealed blob", t)
+        } catch (error: Throwable) {
+            AppLogger.e(TAG, "Unable to open sealed blob", error)
             null
         }
     }
 
-    /**
-     * Keystore-independent sealing used by the export/backup feature: the archive must be
-     * readable on another device, so it is protected purely by the user-supplied password.
-     */
+    /** Keystore-independent portable archive encryption. */
     fun sealPortable(plaintext: ByteArray, password: CharArray): String {
         val salt = ByteArray(16).also(secureRandom::nextBytes)
         val key = deriveKey(password.copyOf(), salt)
         val iv = ByteArray(12).also(secureRandom::nextBytes)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        val ct = cipher.doFinal(plaintext)
-        password.fill('\u0000')
+        val ciphertext = cipher.doFinal(plaintext)
+        password.fill(Char.MIN_VALUE)
         return listOf(
             PORTABLE_VERSION,
             Base64.encodeToString(salt, Base64.NO_WRAP),
             Base64.encodeToString(iv, Base64.NO_WRAP),
-            Base64.encodeToString(ct, Base64.NO_WRAP),
+            Base64.encodeToString(ciphertext, Base64.NO_WRAP),
         ).joinToString(":")
     }
 
@@ -215,18 +188,18 @@ class CryptoVault @Inject constructor(
         require(parts.size == 4 && parts[0] == PORTABLE_VERSION) { "Unsupported archive format" }
         val salt = Base64.decode(parts[1], Base64.NO_WRAP)
         val iv = Base64.decode(parts[2], Base64.NO_WRAP)
-        val ct = Base64.decode(parts[3], Base64.NO_WRAP)
+        val ciphertext = Base64.decode(parts[3], Base64.NO_WRAP)
         val key = deriveKey(password.copyOf(), salt)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
-        password.fill('\u0000')
-        return cipher.doFinal(ct)
+        password.fill(Char.MIN_VALUE)
+        return cipher.doFinal(ciphertext)
     }
 
     /**
-     * Cheap second layer: a keystream derived from the passcode key and the record IV.
-     * It is *not* a replacement for the AEAD - it only guarantees that plaintext cannot be
-     * recovered by an attacker who can invoke the Keystore key but does not know the passcode.
+     * A second keystream layer derived from the passcode key and IV. This is not a replacement
+     * for AEAD; it prevents recovery by an attacker who can invoke the Keystore but lacks the
+     * passcode.
      */
     private fun xorLayer(data: ByteArray, key: SecretKey, iv: ByteArray): ByteArray {
         val mac = javax.crypto.Mac.getInstance("HmacSHA256")
@@ -241,8 +214,8 @@ class CryptoVault @Inject constructor(
             mac.update((counter ushr 8).toByte())
             val block = mac.doFinal()
             val take = minOf(block.size, data.size - produced)
-            for (i in 0 until take) {
-                out[produced + i] = (data[produced + i].toInt() xor block[i].toInt()).toByte()
+            for (index in 0 until take) {
+                out[produced + index] = (data[produced + index].toInt() xor block[index].toInt()).toByte()
             }
             produced += take
             counter++
