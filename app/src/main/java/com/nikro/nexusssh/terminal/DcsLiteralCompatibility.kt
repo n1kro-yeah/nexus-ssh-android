@@ -3,13 +3,11 @@
 package com.nikro.nexusssh.terminal
 
 /**
- * Compatibility symbols for malformed dollar interpolation in a legacy DCS response literal.
+ * Compatibility symbols for malformed dollar interpolation in legacy DECRQSS literals.
  *
- * They only make the generated terminal source parsable by Kotlin. DECRQSS/DCS status replies are
- * an optional xterm capability; normal shell I/O, escape parsing, SGR, OSC and terminal rendering
- * do not depend on these values.
- *
- * The terminal source must later be normalised to use `${'$'}` directly in its DCS literals.
+ * [TerminalSession] normalises the affected DCS `$q` request and `$r` response bytes at the SSH
+ * boundary, preserving protocol behaviour while this generated source remains in place. Normal
+ * shell I/O, SGR, OSC, alternate-screen handling and rendering never depend on these names.
  */
 internal const val q = "q"
 internal const val r0m = "r0m"

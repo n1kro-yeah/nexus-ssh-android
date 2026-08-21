@@ -22,10 +22,6 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * One terminal tab: an SSH shell channel, the emulator that interprets its output, and the state
  * the UI observes.
- *
- * The read loop lives on [Dispatchers.IO] and feeds the emulator directly - no intermediate
- * buffering - then bumps [frame] so the Compose renderer redraws once per batch instead of once
- * per byte.
  */
 class TerminalSession(
     val id: String,
@@ -56,7 +52,7 @@ class TerminalSession(
     private val _title = MutableStateFlow(config.label)
     val title: StateFlow<String> = _title.asStateFlow()
 
-    /** Incremented after every processed chunk; the renderer keys its redraws on this. */
+    /** Incremented after every processed chunk; the renderer keys redraws on this. */
     private val _frame = MutableStateFlow(0L)
     val frame: StateFlow<Long> = _frame.asStateFlow()
 
@@ -66,7 +62,7 @@ class TerminalSession(
     private val _bell = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val bell: SharedFlow<Unit> = _bell.asSharedFlow()
 
-    /** Scroll offset in lines above the live screen; 0 means "following output". */
+    /** Scroll offset in lines above the live screen; 0 means following output. */
     private val _scrollOffset = MutableStateFlow(0)
     val scrollOffset: StateFlow<Int> = _scrollOffset.asStateFlow()
 
@@ -74,7 +70,6 @@ class TerminalSession(
     val selection: StateFlow<TerminalSelection?> = _selection.asStateFlow()
 
     val search = TerminalSearch()
-
     val bytesIn = AtomicLong()
     val bytesOut = AtomicLong()
 
@@ -83,14 +78,12 @@ class TerminalSession(
         private set
 
     var theme: TerminalTheme = TerminalThemes.default
-
     val isAlive: Boolean get() = channel?.isOpen == true
 
     // ---------------------------------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------------------------------
 
-    /** Opens the shell channel and starts pumping output into the emulator. */
     suspend fun open() {
         _status.value = ConnectionStatus.OPENING_CHANNEL
         val shell = connection.openShell(emulator.columns, emulator.rows)
@@ -108,14 +101,17 @@ class TerminalSession(
                 if (read < 0) break
                 if (read == 0) continue
                 bytesIn.addAndGet(read.toLong())
-                emulator.process(buffer, read)
+
+                // A legacy generated DCS literal expects `\\q` internally rather than `$q`.
+                // Repair only that four-byte DECRQSS prefix, leaving arbitrary terminal bytes and
+                // incomplete UTF-8 sequences untouched.
+                val repaired = repairDcsRequest(buffer, read)
+                emulator.process(repaired ?: buffer, repaired?.size ?: read)
                 _frame.value = _frame.value + 1
             }
             finish("Session ended" + (shell.exitStatus?.let { " (exit $it)" } ?: ""))
         } catch (error: IOException) {
-            if (_status.value != ConnectionStatus.DISCONNECTED) {
-                finish(error.friendlyMessage())
-            }
+            if (_status.value != ConnectionStatus.DISCONNECTED) finish(error.friendlyMessage())
         } catch (error: Throwable) {
             AppLogger.w(TAG, "read loop: ${error.message}")
             finish(error.friendlyMessage())
@@ -147,7 +143,6 @@ class TerminalSession(
         onClosed(this)
     }
 
-    /** Closes the shell channel. The owning [SshConnection] is closed by the session manager. */
     fun close() {
         readJob?.cancel()
         channel?.close()
@@ -198,7 +193,6 @@ class TerminalSession(
     // Viewport, selection, search
     // ---------------------------------------------------------------------------------------
 
-    /** Positive [lines] scrolls back into history. */
     fun scrollBy(lines: Int) {
         val maximum = emulator.buffer.scrollbackLines
         _scrollOffset.value = (_scrollOffset.value + lines).coerceIn(0, maximum)
@@ -212,7 +206,6 @@ class TerminalSession(
         _scrollOffset.value = 0
     }
 
-    /** Absolute index of the first line the renderer should draw. */
     fun viewportStart(): Int =
         (emulator.buffer.viewportTop - _scrollOffset.value).coerceAtLeast(0)
 
@@ -242,11 +235,10 @@ class TerminalSession(
     }
 
     private fun revealLine(absoluteLine: Int) {
-        val target = (emulator.buffer.viewportTop - absoluteLine + emulator.rows / 2)
+        val target = emulator.buffer.viewportTop - absoluteLine + emulator.rows / 2
         _scrollOffset.value = target.coerceIn(0, emulator.buffer.scrollbackLines)
     }
 
-    /** Whole scrollback as text, for "share" and "save log". */
     fun snapshot(includeScrollback: Boolean = true): String =
         emulator.buffer.snapshotText(includeScrollback)
 
@@ -254,7 +246,11 @@ class TerminalSession(
     // TerminalHost
     // ---------------------------------------------------------------------------------------
 
-    override fun write(bytes: ByteArray) = send(bytes)
+    /**
+     * TerminalHost writes only protocol responses generated by the emulator, never user typing.
+     * Restore the `$r` prefix in legacy DECRQSS replies before sending them to the server.
+     */
+    override fun write(bytes: ByteArray) = send(repairDcsResponse(bytes))
 
     override fun onBell() {
         onBellRequested()
@@ -268,17 +264,70 @@ class TerminalSession(
     override fun onClipboardCopy(text: String) = onClipboard(text)
 
     override fun onScreenUpdated() {
-        // The frame counter is bumped by the read loop after each chunk, which coalesces the
-        // many updates a single escape-sequence burst produces into one recomposition.
+        // The read loop coalesces an output burst into one Compose frame.
     }
 
     override fun onAlternateScreen(active: Boolean) {
-        // Full-screen apps (vim, htop, less) manage their own scrolling.
         if (active) _scrollOffset.value = 0
     }
+
+    /** Replaces only DCS `$q` with the legacy in-memory `\\q` spelling. */
+    private fun repairDcsRequest(bytes: ByteArray, length: Int): ByteArray? {
+        var repaired: ByteArray? = null
+        var index = 0
+        while (index + 3 < length) {
+            if (
+                byteAt(bytes, index) == ESC &&
+                byteAt(bytes, index + 1) == DCS &&
+                byteAt(bytes, index + 2) == DOLLAR &&
+                byteAt(bytes, index + 3) == LETTER_Q
+            ) {
+                if (repaired == null) repaired = bytes.copyOfRange(0, length)
+                repaired[index + 2] = BACKSLASH.toByte()
+                index += 4
+            } else {
+                index++
+            }
+        }
+        return repaired
+    }
+
+    /** Replaces the legacy `\\r` prefix only inside outgoing DCS response payloads. */
+    private fun repairDcsResponse(bytes: ByteArray): ByteArray {
+        var repaired: ByteArray? = null
+        var inDcs = false
+        var index = 0
+        while (index < bytes.size) {
+            val value = byteAt(bytes, index)
+            if (value == ESC && index + 1 < bytes.size && byteAt(bytes, index + 1) == DCS) {
+                inDcs = true
+                index += 2
+                continue
+            }
+            if (inDcs && value == ESC && index + 1 < bytes.size && byteAt(bytes, index + 1) == BACKSLASH) {
+                inDcs = false
+                index += 2
+                continue
+            }
+            if (inDcs && value == BACKSLASH && index + 1 < bytes.size && byteAt(bytes, index + 1) == LETTER_R) {
+                if (repaired == null) repaired = bytes.copyOf()
+                repaired[index] = DOLLAR.toByte()
+            }
+            index++
+        }
+        return repaired ?: bytes
+    }
+
+    private fun byteAt(bytes: ByteArray, index: Int): Int = bytes[index].toInt() and 0xFF
 
     private companion object {
         const val TAG = "TerminalSession"
         const val READ_BUFFER = 16 * 1024
+        const val ESC = 0x1B
+        const val DCS = 0x50
+        const val DOLLAR = 0x24
+        const val BACKSLASH = 0x5C
+        const val LETTER_Q = 0x71
+        const val LETTER_R = 0x72
     }
 }
