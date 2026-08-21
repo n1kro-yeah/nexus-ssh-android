@@ -158,10 +158,10 @@ fun BackupScreen(
         } else {
             scope.launch(Dispatchers.IO) {
                 val saved = runCatching {
-                    context.contentResolver.openOutputStream(uri, "wt")
-                        ?.bufferedWriter()
-                        ?.use { writer -> writer.write(content) }
-                        != null
+                    val output = context.contentResolver.openOutputStream(uri, "wt")
+                        ?: return@runCatching false
+                    output.bufferedWriter().use { writer -> writer.write(content) }
+                    true
                 }.getOrDefault(false)
                 viewModel.finishExport(if (saved) "Backup saved" else "Could not write the file")
             }
