@@ -6,6 +6,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.nikro.nexusssh.core.log.AppLogger
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
@@ -25,7 +26,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class CryptoVault @Inject constructor(
-    private val context: Context,
+    @ApplicationContext private val context: Context,
 ) {
     private val secureRandom = SecureRandom()
 
